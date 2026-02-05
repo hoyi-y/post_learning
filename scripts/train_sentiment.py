@@ -3,6 +3,8 @@ from pathlib import Path
 import json
 import random
 from typing import Dict, List
+import argparse
+import re
 
 import torch
 import yaml
@@ -99,6 +101,11 @@ def collate_fn(features, tokenizer):
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--resume", action="store_true", help="Auto-resume from latest checkpoint")
+    parser.add_argument("--resume_from", type=str, default="", help="Resume from a specific checkpoint path")
+    args = parser.parse_args()
+
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
 
     random.seed(cfg.get("seed", 42))
@@ -188,6 +195,8 @@ def main():
         save_strategy="steps",
         fp16=training_cfg.get("fp16", False),
         bf16=training_cfg.get("bf16", True),
+        dataloader_num_workers=training_cfg.get("dataloader_num_workers", 0),
+        dataloader_pin_memory=training_cfg.get("dataloader_pin_memory", True),
         report_to=[],
     )
 
@@ -207,7 +216,26 @@ def main():
         tokenizer=tokenizer,
     )
 
-    trainer.train()
+    resume_path = None
+    if args.resume_from:
+        resume_path = args.resume_from
+    elif args.resume:
+        output_dir = Path(training_cfg["output_dir"])
+        if output_dir.exists():
+            checkpoints = list(output_dir.glob("checkpoint-*"))
+            if checkpoints:
+                def _step(p: Path):
+                    m = re.search(r"checkpoint-(\\d+)", p.name)
+                    return int(m.group(1)) if m else -1
+
+                checkpoints.sort(key=_step, reverse=True)
+                resume_path = str(checkpoints[0])
+
+    if resume_path:
+        print(f"Resuming from checkpoint: {resume_path}")
+        trainer.train(resume_from_checkpoint=resume_path)
+    else:
+        trainer.train()
     trainer.save_model(training_cfg["output_dir"])
 
 
