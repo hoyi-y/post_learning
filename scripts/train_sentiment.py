@@ -104,7 +104,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true", help="Auto-resume from latest checkpoint")
     parser.add_argument("--resume_from", type=str, default="", help="Resume from a specific checkpoint path")
-    args = parser.parse_args()
+    cli_args = parser.parse_args()
 
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
 
@@ -205,11 +205,11 @@ def main():
     valid_keys = set(inspect.signature(TrainingArguments.__init__).parameters.keys())
     args_kwargs = {k: v for k, v in args_kwargs.items() if k in valid_keys}
 
-    args = TrainingArguments(**args_kwargs)
+    training_args = TrainingArguments(**args_kwargs)
 
     trainer = Trainer(
         model=model,
-        args=args,
+        args=training_args,
         train_dataset=train_ds,
         eval_dataset=dev_ds,
         data_collator=data_collator,
@@ -217,9 +217,9 @@ def main():
     )
 
     resume_path = None
-    if args.resume_from:
-        resume_path = args.resume_from
-    elif args.resume:
+    if cli_args.resume_from:
+        resume_path = cli_args.resume_from
+    elif cli_args.resume:
         output_dir = Path(training_cfg["output_dir"])
         if output_dir.exists():
             checkpoints = list(output_dir.glob("checkpoint-*"))
