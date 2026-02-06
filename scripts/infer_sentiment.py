@@ -35,14 +35,8 @@ def normalize_label(text: str) -> str:
 
 def compute_output_dir(cfg) -> Path:
     training_cfg = cfg["training"]
-    bs = training_cfg["per_device_train_batch_size"]
-    ga = training_cfg["gradient_accumulation_steps"]
-    lr = training_cfg["learning_rate"]
-    ml = cfg["model"]["max_length"]
-    lr_str = f"{lr:.0e}" if lr < 1e-3 else f"{lr:g}"
-    lr_str = lr_str.replace(".", "p").replace("+", "")
     base = training_cfg["output_dir"]
-    return ROOT / f"{base}_bs{bs}_ga{ga}_lr{lr_str}_ml{ml}"
+    return ROOT / f"{base}"
 
 
 def main():
