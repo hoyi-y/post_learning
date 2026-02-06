@@ -5,6 +5,7 @@ import random
 from typing import Dict, List
 import argparse
 import re
+import os
 
 import torch
 import yaml
@@ -104,6 +105,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--resume", action="store_true", help="Auto-resume from latest checkpoint")
     parser.add_argument("--resume_from", type=str, default="", help="Resume from a specific checkpoint path")
+    parser.add_argument("--reset_optimizer", action="store_true", help="Reset optimizer/scheduler state when resuming")
     cli_args = parser.parse_args()
 
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
@@ -181,6 +183,22 @@ def main():
         "save_steps": _to_int(training_cfg.get("save_steps")),
         "logging_steps": _to_int(training_cfg.get("logging_steps")),
     }
+
+    
+
+    def _run_dir(base: str) -> Path:
+        bs = training_cfg["per_device_train_batch_size"]
+        ga = training_cfg["gradient_accumulation_steps"]
+        
+        return ROOT / f"{base}_bs{bs}_ga{ga}"
+
+    # Build output_dir from config, unless resuming from a specific checkpoint
+    if cli_args.resume_from:
+        output_dir = Path(cli_args.resume_from).resolve().parent
+    else:
+        output_dir = _run_dir(training_cfg["output_dir"])
+    training_cfg["output_dir"] = str(output_dir)
+    print("output_dir =", training_cfg["output_dir"])
     args_kwargs = dict(
         output_dir=training_cfg["output_dir"],
         per_device_train_batch_size=training_cfg["per_device_train_batch_size"],
@@ -220,12 +238,12 @@ def main():
     if cli_args.resume_from:
         resume_path = cli_args.resume_from
     elif cli_args.resume:
-        output_dir = Path(training_cfg["output_dir"])
         if output_dir.exists():
             checkpoints = list(output_dir.glob("checkpoint-*"))
+            
             if checkpoints:
                 def _step(p: Path):
-                    m = re.search(r"checkpoint-(\\d+)", p.name)
+                    m = re.search(r"checkpoint-(\d+)", p.name)
                     return int(m.group(1)) if m else -1
 
                 checkpoints.sort(key=_step, reverse=True)
@@ -233,6 +251,13 @@ def main():
 
     if resume_path:
         print(f"Resuming from checkpoint: {resume_path}")
+        if cli_args.reset_optimizer:
+            for fname in ["optimizer.pt", "scheduler.pt", "scaler.pt"]:
+                fpath = Path(resume_path) / fname
+                if fpath.exists():
+                    bak = fpath.with_suffix(fpath.suffix + ".bak")
+                    os.replace(fpath, bak)
+            print("Optimizer/scheduler state reset for resume.")
         trainer.train(resume_from_checkpoint=resume_path)
     else:
         trainer.train()
