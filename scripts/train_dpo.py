@@ -25,37 +25,48 @@ def load_jsonl(path: Path):
     return items
 
 
-def _format_lr(lr: float) -> str:
-    s = f"{lr:.0e}" if lr < 1e-3 else f"{lr:g}"
-    return s.replace(".", "p").replace("+", "")
-
-
 def _run_dir(cfg) -> Path:
     training_cfg = cfg["training"]
-    bs = training_cfg["per_device_train_batch_size"]
-    ga = training_cfg["gradient_accumulation_steps"]
-    lr = _format_lr(training_cfg["learning_rate"])
-    ml = cfg["model"]["max_length"]
     base = training_cfg["output_dir"]
-    return ROOT / f\"{base}_dpo_bs{bs}_ga{ga}_lr{lr}_ml{ml}\"
+    return ROOT / f"{base}_dpo"
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument(\"--adapter_dir\", type=str, default=\"\", help=\"Resume adapter dir (optional)\")
+    parser.add_argument("--adapter_dir", type=str, default="", help="Resume adapter dir (optional)")
     args = parser.parse_args()
 
-    cfg = yaml.safe_load(CONFIG.read_text(encoding=\"utf-8\"))
+    cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    # Ensure numeric fields are proper types
+    training_cfg = cfg["training"]
 
-    model_name = cfg[\"model\"][\"name_or_path\"]
-    max_length = cfg[\"model\"][\"max_length\"]
+    def _to_int(v):
+        return int(v) if isinstance(v, str) else v
 
-    qlora_cfg = cfg.get(\"qlora\", {})
+    def _to_float(v):
+        return float(v) if isinstance(v, str) else v
+
+    cfg["training"] = {
+        **training_cfg,
+        "per_device_train_batch_size": _to_int(training_cfg.get("per_device_train_batch_size")),
+        "per_device_eval_batch_size": _to_int(training_cfg.get("per_device_eval_batch_size")),
+        "learning_rate": _to_float(training_cfg.get("learning_rate")),
+        "num_train_epochs": _to_float(training_cfg.get("num_train_epochs")),
+        "gradient_accumulation_steps": _to_int(training_cfg.get("gradient_accumulation_steps")),
+        "eval_steps": _to_int(training_cfg.get("eval_steps")),
+        "save_steps": _to_int(training_cfg.get("save_steps")),
+        "logging_steps": _to_int(training_cfg.get("logging_steps")),
+    }
+
+    model_name = cfg["model"]["name_or_path"]
+    max_length = cfg["model"]["max_length"]
+
+    qlora_cfg = cfg.get("qlora", {})
     bnb_config = BitsAndBytesConfig(
-        load_in_4bit=qlora_cfg.get(\"load_in_4bit\", True),
-        bnb_4bit_compute_dtype=getattr(torch, qlora_cfg.get(\"bnb_4bit_compute_dtype\", \"bfloat16\")),
-        bnb_4bit_quant_type=qlora_cfg.get(\"bnb_4bit_quant_type\", \"nf4\"),
-        bnb_4bit_use_double_quant=qlora_cfg.get(\"bnb_4bit_use_double_quant\", True),
+        load_in_4bit=qlora_cfg.get("load_in_4bit", True),
+        bnb_4bit_compute_dtype=getattr(torch, qlora_cfg.get("bnb_4bit_compute_dtype", "bfloat16")),
+        bnb_4bit_quant_type=qlora_cfg.get("bnb_4bit_quant_type", "nf4"),
+        bnb_4bit_use_double_quant=qlora_cfg.get("bnb_4bit_use_double_quant", True),
     )
 
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
@@ -65,42 +76,42 @@ def main():
     base_model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=bnb_config,
-        device_map=\"auto\",
+        device_map="auto",
     )
     base_model = prepare_model_for_kbit_training(base_model)
 
     lora_config = LoraConfig(
-        r=qlora_cfg.get(\"lora_r\", 16),
-        lora_alpha=qlora_cfg.get(\"lora_alpha\", 32),
-        lora_dropout=qlora_cfg.get(\"lora_dropout\", 0.05),
-        bias=\"none\",
-        task_type=\"CAUSAL_LM\",
-        target_modules=qlora_cfg.get(\"target_modules\"),
+        r=qlora_cfg.get("lora_r", 16),
+        lora_alpha=qlora_cfg.get("lora_alpha", 32),
+        lora_dropout=qlora_cfg.get("lora_dropout", 0.05),
+        bias="none",
+        task_type="CAUSAL_LM",
+        target_modules=qlora_cfg.get("target_modules"),
     )
     model = get_peft_model(base_model, lora_config)
 
-    train_items = load_jsonl(ROOT / \"data\" / \"processed\" / \"dpo_train.jsonl\")
-    dev_items = load_jsonl(ROOT / \"data\" / \"processed\" / \"dpo_dev.jsonl\")
+    train_items = load_jsonl(ROOT / "data" / "processed" / "dpo_train.jsonl")
+    dev_items = load_jsonl(ROOT / "data" / "processed" / "dpo_dev.jsonl")
 
     train_ds = Dataset.from_list(train_items)
     dev_ds = Dataset.from_list(dev_items)
 
-    training_cfg = cfg[\"training\"]
+    training_cfg = cfg["training"]
     output_dir = _run_dir(cfg)
-    print(\"output_dir =\", output_dir)
+    print("output_dir =", output_dir)
 
     dpo_args = DPOConfig(
         output_dir=str(output_dir),
-        per_device_train_batch_size=training_cfg[\"per_device_train_batch_size\"],
-        per_device_eval_batch_size=training_cfg[\"per_device_eval_batch_size\"],
-        gradient_accumulation_steps=training_cfg[\"gradient_accumulation_steps\"],
-        learning_rate=training_cfg[\"learning_rate\"],
-        num_train_epochs=training_cfg[\"num_train_epochs\"],
-        eval_steps=training_cfg[\"eval_steps\"],
-        save_steps=training_cfg[\"save_steps\"],
-        logging_steps=training_cfg[\"logging_steps\"],
-        bf16=training_cfg.get(\"bf16\", True),
-        fp16=training_cfg.get(\"fp16\", False),
+        per_device_train_batch_size=training_cfg["per_device_train_batch_size"],
+        per_device_eval_batch_size=training_cfg["per_device_eval_batch_size"],
+        gradient_accumulation_steps=training_cfg["gradient_accumulation_steps"],
+        learning_rate=training_cfg["learning_rate"],
+        num_train_epochs=training_cfg["num_train_epochs"],
+        eval_steps=training_cfg["eval_steps"],
+        save_steps=training_cfg["save_steps"],
+        logging_steps=training_cfg["logging_steps"],
+        bf16=training_cfg.get("bf16", True),
+        fp16=training_cfg.get("fp16", False),
         max_length=max_length,
         max_prompt_length=max_length - 16,
         report_to=[],

@@ -28,23 +28,34 @@ def build_prompt(instruction: str, input_text: str) -> str:
     return f"{instruction}\n输入: {input_text}\n回答:"
 
 
-def _format_lr(lr: float) -> str:
-    s = f"{lr:.0e}" if lr < 1e-3 else f"{lr:g}"
-    return s.replace(".", "p").replace("+", "")
-
-
 def _run_dir(cfg) -> Path:
     training_cfg = cfg["training"]
-    bs = training_cfg["per_device_train_batch_size"]
-    ga = training_cfg["gradient_accumulation_steps"]
-    lr = _format_lr(training_cfg["learning_rate"])
-    ml = cfg["model"]["max_length"]
     base = training_cfg["output_dir"]
-    return ROOT / f"{base}_sft_bs{bs}_ga{ga}_lr{lr}_ml{ml}"
+    return ROOT / f"{base}_sft"
 
 
 def main():
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
+    # Ensure numeric fields are proper types
+    training_cfg = cfg["training"]
+
+    def _to_int(v):
+        return int(v) if isinstance(v, str) else v
+
+    def _to_float(v):
+        return float(v) if isinstance(v, str) else v
+
+    cfg["training"] = {
+        **training_cfg,
+        "per_device_train_batch_size": _to_int(training_cfg.get("per_device_train_batch_size")),
+        "per_device_eval_batch_size": _to_int(training_cfg.get("per_device_eval_batch_size")),
+        "learning_rate": _to_float(training_cfg.get("learning_rate")),
+        "num_train_epochs": _to_float(training_cfg.get("num_train_epochs")),
+        "gradient_accumulation_steps": _to_int(training_cfg.get("gradient_accumulation_steps")),
+        "eval_steps": _to_int(training_cfg.get("eval_steps")),
+        "save_steps": _to_int(training_cfg.get("save_steps")),
+        "logging_steps": _to_int(training_cfg.get("logging_steps")),
+    }
     model_name = cfg["model"]["name_or_path"]
     max_length = cfg["model"]["max_length"]
 
@@ -108,6 +119,7 @@ def main():
         bf16=training_cfg.get("bf16", True),
         fp16=training_cfg.get("fp16", False),
         max_seq_length=max_length,
+        dataset_text_field="text",
         report_to=[],
     )
 
@@ -117,7 +129,6 @@ def main():
         train_dataset=train_ds,
         eval_dataset=dev_ds,
         tokenizer=tokenizer,
-        dataset_text_field="text",
     )
 
     trainer.train()

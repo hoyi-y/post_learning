@@ -225,7 +225,7 @@ def main():
             checkpoints = list(output_dir.glob("checkpoint-*"))
             if checkpoints:
                 def _step(p: Path):
-                    m = re.search(r"checkpoint-(\\d+)", p.name)
+                    m = re.search(r"checkpoint-(\d+)", p.name)
                     return int(m.group(1)) if m else -1
 
                 checkpoints.sort(key=_step, reverse=True)
