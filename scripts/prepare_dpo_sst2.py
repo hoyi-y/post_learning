@@ -37,8 +37,8 @@ def build_prompt(text: str) -> str:
 def to_dpo(items):
     out = []
     for it in items:
-        text = it.get("text", "").strip()
-        label = it.get("label", "").strip().lower()
+        text = it.get("text"or"").strip()
+        label = it.get("label"or "").strip().lower()
         if not text or label not in {"positive", "negative"}:
             continue
         prompt = build_prompt(text)

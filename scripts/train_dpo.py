@@ -72,12 +72,17 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(model_name, use_fast=True)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
+    if tokenizer.pad_token_id is None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+    tokenizer.padding_side = "right"
+    tokenizer.truncation_side = "right"
 
     base_model = AutoModelForCausalLM.from_pretrained(
         model_name,
         quantization_config=bnb_config,
         device_map="auto",
     )
+    base_model.config.pad_token_id = tokenizer.pad_token_id
     base_model = prepare_model_for_kbit_training(base_model)
 
     lora_config = LoraConfig(
@@ -93,8 +98,35 @@ def main():
     train_items = load_jsonl(ROOT / "data" / "processed" / "dpo_train.jsonl")
     dev_items = load_jsonl(ROOT / "data" / "processed" / "dpo_dev.jsonl")
 
+    def _clean(items):
+        out = []
+        for ex in items:
+            prompt = (ex.get("prompt") or "").strip()
+            chosen = (ex.get("chosen") or "").strip()
+            rejected = (ex.get("rejected") or "").strip()
+            if not prompt or not chosen or not rejected:
+                continue
+            out.append({"prompt": prompt, "chosen": chosen, "rejected": rejected})
+        return out
+
+    train_items = _clean(train_items)
+    dev_items = _clean(dev_items)
+
     train_ds = Dataset.from_list(train_items)
     dev_ds = Dataset.from_list(dev_items)
+
+    def _norm(ex):
+        return {
+            "prompt": str(ex.get("prompt", "")).strip(),
+            "chosen": str(ex.get("chosen", "")).strip(),
+            "rejected": str(ex.get("rejected", "")).strip(),
+        }
+
+    train_ds = train_ds.map(_norm, remove_columns=train_ds.column_names)
+    dev_ds = dev_ds.map(_norm, remove_columns=dev_ds.column_names)
+
+    train_ds = train_ds.filter(lambda ex: ex["prompt"] and ex["chosen"] and ex["rejected"])
+    dev_ds = dev_ds.filter(lambda ex: ex["prompt"] and ex["chosen"] and ex["rejected"])
 
     training_cfg = cfg["training"]
     output_dir = _run_dir(cfg)
@@ -129,5 +161,5 @@ def main():
     trainer.save_model(str(output_dir))
 
 
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     main()

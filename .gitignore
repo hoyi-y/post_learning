@@ -13,7 +13,8 @@ __pycache__/
 /data/processed/
 /data/external/
 /models/
-/outputs/
+/outputs*/
+/out/
 /logs/
 
 # Notebooks

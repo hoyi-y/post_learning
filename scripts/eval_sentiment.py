@@ -45,9 +45,13 @@ def normalize_label(text: str) -> str:
     return ""
 
 
-def compute_output_dir(cfg) -> Path:
+def compute_output_dir(cfg, preset: str) -> Path:
     training_cfg = cfg["training"]
     base = training_cfg["output_dir"]
+    if preset == "sft":
+        return ROOT / f"{base}_sft"
+    if preset == "dpo":
+        return ROOT / f"{base}_dpo"
     return ROOT / base
 
 
@@ -55,6 +59,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--adapter_dir", type=str, default="", help="Path to LoRA adapter dir")
     parser.add_argument("--max_samples", type=int, default=0, help="Limit samples for quick eval")
+    parser.add_argument("--preset", type=str, default="base", choices=["base", "sft", "dpo"], help="Select output dir preset")
     args = parser.parse_args()
 
     cfg = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
@@ -63,7 +68,7 @@ def main():
     if args.max_samples > 0:
         dev_items = dev_items[: args.max_samples]
 
-    adapter_dir = Path(args.adapter_dir) if args.adapter_dir else compute_output_dir(cfg)
+    adapter_dir = Path(args.adapter_dir) if args.adapter_dir else compute_output_dir(cfg, args.preset)
     if not adapter_dir.exists():
         raise FileNotFoundError(f"Adapter dir not found: {adapter_dir}")
 
